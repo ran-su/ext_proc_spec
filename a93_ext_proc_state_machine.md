@@ -261,10 +261,14 @@ BODY_INPUT_EOS_SENT
   The filter sent end_of_stream or end_of_stream_without_message to ext_proc.
 
 BODY_OUTPUT_EOS_RECEIVED
-  ExtProc told the filter to forward EOS for that body stream.
+  Request direction only: ext_proc told the filter to forward request EOS.
+  A93 says streamed_response end_of_stream is honored only on
+  client-to-server messages.
 
 BODY_DONE
-  EOS was forwarded to the next data-plane hop.
+  Request direction: EOS was forwarded to the next data-plane hop.
+  Response direction: final completion is driven by server trailers, not
+  by response_body end_of_stream.
 
 BODY_DISCARDING_INPUT
   Request direction only: ext_proc ended the request body before the
@@ -282,8 +286,8 @@ stateDiagram-v2
 
     BODY_INPUT_STARTED --> BODY_INPUT_EOS_SENT: send input EOS
     BODY_OUTPUT_STARTED --> BODY_INPUT_EOS_SENT: send input EOS
-    BODY_INPUT_STARTED --> BODY_OUTPUT_EOS_RECEIVED: receive output EOS
-    BODY_OUTPUT_STARTED --> BODY_OUTPUT_EOS_RECEIVED: receive output EOS
+    BODY_INPUT_STARTED --> BODY_OUTPUT_EOS_RECEIVED: receive request output EOS
+    BODY_OUTPUT_STARTED --> BODY_OUTPUT_EOS_RECEIVED: receive request output EOS
 
     BODY_INPUT_EOS_SENT --> BODY_DONE: receive output EOS and forward EOS
     BODY_OUTPUT_EOS_RECEIVED --> BODY_DONE: input already ended
@@ -313,7 +317,7 @@ current shared and directional state. A useful processing pipeline is:
 7. Validate status == CONTINUE where A93 requires it.
 8. Reject unsupported CONTINUE_AND_REPLACE.
 9. Validate header mutations and mutation_rules.
-10. Reject grpc_message_compressed=true in a response body.
+10. Reject grpc_message_compressed=true in a body streamed_response.
 11. Apply output effects: mutate headers, forward body output, forward EOS,
     or release a blocked header/trailer gate.
 12. Advance the shared, request, response, body, and flow-control states.
@@ -349,10 +353,12 @@ ProcessingResponse.response_trailers
   valid only if expected_blocking_response == RESPONSE_TRAILERS
 
 ProcessingResponse.request_body
-  valid only if request_body_mode == GRPC and request body output is active
+  valid only if request_body_mode == GRPC, no earlier blocking response is
+  being overtaken, and request body output is active
 
 ProcessingResponse.response_body
-  valid only if response_body_mode == GRPC and response body output is active
+  valid only if response_body_mode == GRPC, no earlier blocking response is
+  being overtaken, and response body output is active
 
 ProcessingResponse.immediate_response
   valid in response to any data-plane event unless disable_immediate_response=true
@@ -419,8 +425,8 @@ sequenceDiagram
     EP-->>Filter: ProcessingResponse request_drain=true
     Filter-->>EP: half-close ext_proc stream
     Filter-->>Filter: stop reading data-plane messages
-    EP-->>Filter: echo already received body output
-    Filter-->>Next: forward echoed body output
+    EP-->>Filter: echo body messages already received from filter
+    Filter-->>Next: forward echoed body messages
     EP-->>Filter: close ext_proc stream with OK
     Filter-->>Filter: enter CLOSED_OK_BYPASS
     Filter-->>Filter: resume reading data-plane messages
@@ -498,4 +504,3 @@ split along these lines:
 - two directional protocol machines
 - body transform sub-state per direction
 - independent flow-control windows
-

@@ -55,8 +55,8 @@ sequenceDiagram
 
     Client->>Filter: Client message M1
     Filter->>EP: ProcessingRequest.request_body body=M1
-    EP-->>Filter: ProcessingResponse.request_body streamed_response body=M1' or zero/many replacement messages
-    Filter->>Server: Client message(s) chosen by ext_proc server
+    EP-->>Filter: ProcessingResponse.request_body streamed_response body=output message
+    Filter->>Server: Forward output request body stream chosen by ext_proc server
 
     Client->>Filter: Client half-close
     Filter->>EP: request_body end_of_stream or end_of_stream_without_message
@@ -70,8 +70,8 @@ sequenceDiagram
 
     Server-->>Filter: Server message S1
     Filter->>EP: ProcessingRequest.response_body body=S1
-    EP-->>Filter: ProcessingResponse.response_body streamed_response body=S1' or zero/many replacement messages
-    Filter-->>Client: Server message(s) chosen by ext_proc server
+    EP-->>Filter: ProcessingResponse.response_body streamed_response body=output message
+    Filter-->>Client: Forward output response body stream chosen by ext_proc server
 
     Server-->>Filter: Server trailers
     Filter->>EP: ProcessingRequest.response_trailers
@@ -99,8 +99,8 @@ sequenceDiagram
 
     Client->>Filter: Client message M1
     Filter->>EP: ProcessingRequest.request_body body=M1
-    EP-->>Filter: ProcessingResponse.request_body streamed_response body=M1' or zero/many replacement messages
-    Filter->>Server: Client message(s) chosen by ext_proc server
+    EP-->>Filter: ProcessingResponse.request_body streamed_response body=output message
+    Filter->>Server: Forward output request body stream chosen by ext_proc server
 
     Client->>Filter: Client half-close
     Filter->>EP: request_body end_of_stream or end_of_stream_without_message
@@ -114,8 +114,8 @@ sequenceDiagram
 
     Server-->>Filter: Server message S1
     Filter->>EP: ProcessingRequest.response_body body=S1
-    EP-->>Filter: ProcessingResponse.response_body streamed_response body=S1' or zero/many replacement messages
-    Filter-->>Client: Server message(s) chosen by ext_proc server
+    EP-->>Filter: ProcessingResponse.response_body streamed_response body=output message
+    Filter-->>Client: Forward output response body stream chosen by ext_proc server
 
     Server-->>Filter: Server trailers
     Filter->>EP: ProcessingRequest.response_trailers
@@ -349,6 +349,7 @@ sequenceDiagram
 ## 12. ext_proc Rewrites Request Message Count
 
 In `GRPC` body mode, the ext_proc callout server owns the resulting body stream. It may drop, replace, or expand messages; the response message count does not need to match the original request message count.
+The filter does not match individual `ProcessingResponse.request_body` messages back to specific `ProcessingRequest.request_body` messages.
 
 ```mermaid
 sequenceDiagram
@@ -364,9 +365,9 @@ sequenceDiagram
     Client->>Filter: Client message M2
     Filter->>EP: request_body body=M2
 
-    alt Drop message
-        EP-->>Filter: No streamed_response for M1 yet, or returns only later messages
-        Filter->>Server: M1 not forwarded
+    alt Drop or buffer input
+        EP-->>Filter: No output for M1 before later input or EOS
+        Filter->>Server: Forward only ext_proc output, not original M1
     else Replace one message
         EP-->>Filter: streamed_response body=M1_rewritten
         Filter->>Server: M1_rewritten
@@ -381,6 +382,7 @@ sequenceDiagram
 ## 13. ext_proc Rewrites Response Message Count
 
 The same body-stream ownership applies to server-to-client messages when `response_body_mode=GRPC`. A valid config with response body mode `GRPC` requires `response_header_mode=SEND`.
+The filter forwards the ext_proc output stream and does not require a one-to-one response for each input server message.
 
 ```mermaid
 sequenceDiagram
@@ -399,9 +401,9 @@ sequenceDiagram
     Server-->>Filter: Server message S1
     Filter->>EP: response_body body=S1
 
-    alt Drop server message
-        EP-->>Filter: No corresponding streamed_response
-        Filter-->>Client: S1 not forwarded
+    alt Drop or buffer server message
+        EP-->>Filter: No output for S1 before later input or trailers
+        Filter-->>Client: Forward only ext_proc output, not original S1
     else Replace server message
         EP-->>Filter: streamed_response body=S1_rewritten
         Filter-->>Client: S1_rewritten
