@@ -297,8 +297,13 @@ stateDiagram-v2
 
 ## ProcessingResponse Validation
 
-The filter should validate every incoming `ProcessingResponse` against
-current shared and directional state. A useful processing pipeline is:
+In normal mode, the filter should validate every incoming
+`ProcessingResponse` against current shared and directional state. In
+observability mode, processing responses are not used to gate or mutate
+the data-plane RPC; ignore response payloads for those purposes and keep
+only the stream-lifecycle handling required by the implementation.
+
+A useful normal-mode processing pipeline is:
 
 ```text
 1. Reject responses if the stream is not OPEN or DRAINING.

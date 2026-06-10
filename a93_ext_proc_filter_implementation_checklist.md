@@ -286,7 +286,7 @@ Bodies:
 - [ ] Use `request_body` for client messages.
 - [ ] Use `response_body` for server messages.
 - [ ] In `GRPC` mode, put exactly one complete serialized gRPC message in
-  each `HttpBody.body`.
+  each body `ProcessingRequest` that carries a message.
 - [ ] In gRPC implementations, send deframed serialized gRPC message bytes,
   not raw HTTP/2 DATA frames.
 - [ ] For sent messages, run ext_proc before compression.
@@ -506,8 +506,8 @@ Tests:
 
 - [ ] Invalid header mutation from ext_proc fails ext_proc.
 - [ ] Disallowed mutation is ignored when `disallow_is_error=false`.
-- [ ] Disallowed mutation fails RPC/ext_proc when `disallow_is_error=true`
-  according to implementation handling.
+- [ ] Disallowed mutation with `disallow_is_error=true` is treated as an
+  ext_proc failure and then follows `failure_mode_allow` handling.
 - [ ] `host`, pseudo headers, and `grpc-*` cannot be mutated.
 - [ ] Binary headers are encoded/decoded correctly.
 
