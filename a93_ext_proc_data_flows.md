@@ -6,6 +6,10 @@ Sources checked:
 - Linked Envoy PR 38753 for `GRPC` body mode, `request_drain`, `end_of_stream_without_message`, and `grpc_message_compressed`: https://github.com/envoyproxy/envoy/pull/38753
 - Linked Envoy PR 45509 for ext_proc flow control windows and window updates: https://github.com/envoyproxy/envoy/pull/45509
 - Linked gRPC proposal PR 510 / A102 for `GrpcService`, `allowed_grpc_services`, credentials, and header mutation handling: https://github.com/grpc/proposal/pull/510
+- Implementation-status spot check on 2026-06-11:
+  - C++ / C-core draft implementation PR: https://github.com/grpc/grpc/pull/41704
+  - Go merged setup PRs and open normal-mode PR: https://github.com/grpc/grpc-go/pull/9073, https://github.com/grpc/grpc-go/pull/9086, https://github.com/grpc/grpc-go/pull/9174
+  - Java open client implementation PR: https://github.com/grpc/grpc-java/pull/12792
 
 Assumptions:
 
@@ -14,6 +18,28 @@ Assumptions:
 - "ext_proc filter" may run in the gRPC client stack or the gRPC server stack.
 - "ext_proc callout server" is reached by a per-data-plane-RPC gRPC side stream created by the filter.
 - "Control plane server" supplies xDS resources that configure the filter and its `GrpcService` side-channel target.
+
+Implementation reality note:
+
+- The flow diagrams below describe the target A93 behavior, not what every
+  language has shipped. As of the 2026-06-11 spot check, visible C++, Go, and
+  Java work is client-side first; server-side ext_proc is not implemented in
+  those public PRs.
+- Implementations are landing in layers. Config parsing and xDS registration
+  appear first, then client filter/interceptor scaffolding, then normal-mode
+  body/header behavior, then observability, metrics, channel retention, and
+  eventually server-side support.
+- The current Go normal-mode PR explicitly excludes channel retention,
+  metrics, and observability mode. This is useful when reading these flows:
+  those boxes are spec-required target behavior, but may still be future work
+  for a specific language.
+- The C++ draft PR currently has ext_proc config parsing and a filter class,
+  but its call interception method is still a stub. Treat C++ data-plane flows
+  as design intent until the runtime body is implemented.
+- The Java open PR contains the richest visible client-side runtime shape:
+  raw-message interception, side-stream handling, request/response mutation,
+  fail-open behavior, observability-mode branches, client metrics, and a cached
+  channel manager. It is still unmerged.
 
 ## 1. Configuration And Side-Channel Setup
 

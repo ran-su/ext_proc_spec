@@ -14,10 +14,49 @@ described by A93. It is intended to be used together with:
   A79/A66/A89/A60 for metrics/backend-service labeling, and A103/A106 for
   attributes/CEL integration. A93 links these proposals and relies on their
   existing mechanisms.
+- Implementation-status spot check on 2026-06-11:
+  - C++ / C-core draft: https://github.com/grpc/grpc/pull/41704
+  - Go setup and normal-mode work: https://github.com/grpc/grpc-go/pull/9073,
+    https://github.com/grpc/grpc-go/pull/9086,
+    https://github.com/grpc/grpc-go/pull/9174
+  - Go A102 dependency: https://github.com/grpc/grpc-go/pull/9175
+  - Java ext_proc client implementation: https://github.com/grpc/grpc-java/pull/12792
+  - Java GrpcService/header/channel dependencies:
+    https://github.com/grpc/grpc-java/pull/12492,
+    https://github.com/grpc/grpc-java/pull/12494,
+    https://github.com/grpc/grpc-java/pull/12690
 
 This document is implementation guidance. The source of truth remains A93
 and the linked proto definitions. Use generated proto types instead of
 hand-written field names.
+
+## Implementation Status Snapshot
+
+This section is non-normative and intentionally dated. Use it to understand
+implementation sequencing, not to redefine A93 requirements.
+
+As of 2026-06-11:
+
+| Area | Merged work checked | Open or missing work checked | Spec-doc lesson |
+| --- | --- | --- | --- |
+| A93 proposal | None; proposal PR is not merged. | [grpc/proposal#484](https://github.com/grpc/proposal/pull/484) remains open. | Keep these docs explicitly proposal-derived and dated until A93 lands. |
+| C++ / C-core | None inspected for runtime ext_proc. | [grpc/grpc#41704](https://github.com/grpc/grpc/pull/41704) is an open draft with generated protos, xDS config parsing, client-only filter registration, and an `ExtProcFilter` class. The actual call interception body is still a stub. | Config support can land before any real data-plane state transitions, so the flow/state docs describe target behavior, not current C++ runtime behavior. |
+| Go | [grpc-go#9054](https://github.com/grpc/grpc-go/pull/9054), [grpc-go#9073](https://github.com/grpc/grpc-go/pull/9073), [grpc-go#9086](https://github.com/grpc/grpc-go/pull/9086), and [grpc-go#9163](https://github.com/grpc/grpc-go/pull/9163) are merged. | [grpc-go#9174](https://github.com/grpc/grpc-go/pull/9174) normal-mode `ClientStream` work and [grpc-go#9175](https://github.com/grpc/grpc-go/pull/9175) A102 `GrpcService` support are open. The normal-mode PR explicitly excludes channel retention, metrics, and observability mode. | The practical sequence is config parsing, filter scaffolding, normal mode, then deferred subsystems. Keep retention, metrics, observability, and flow control as distinct checklist items. |
+| Java | [grpc-java#12492](https://github.com/grpc/grpc-java/pull/12492) `GrpcService` config and [grpc-java#12494](https://github.com/grpc/grpc-java/pull/12494) header mutation support are merged. | [grpc-java#12792](https://github.com/grpc/grpc-java/pull/12792) ext_proc client implementation and [grpc-java#12690](https://github.com/grpc/grpc-java/pull/12690) cached channel manager are open. | Java shows the richest visible client-side runtime shape: raw serialized messages, side-stream startup, fail-open paths, observability branches, metrics, and channel caching. |
+| Cross-language gaps | None inspected. | No public C++, Go, or Java work inspected here implements server-side ext_proc or clearly completes the A93 protocol-level ext_proc flow-control window mechanism. | Treat server-side support and explicit ext_proc window updates as separate target-state sections, not implied by client-side normal mode or ordinary gRPC backpressure. |
+
+Suggested implementation order:
+
+- [ ] Land config parsing and validation first, guarded by client/server env
+  vars.
+- [ ] Land side-channel `GrpcService` creation separately from runtime body
+  handling, because A102 support tends to be reusable across ext_authz and
+  ext_proc.
+- [ ] Land client normal mode before observability mode.
+- [ ] Keep metrics, channel retention, observability deferred close, and
+  protocol-level flow control as separate reviewable slices.
+- [ ] Treat server-side support as a separate feature, not a trivial flip of
+  client-side code.
 
 ## Scope
 

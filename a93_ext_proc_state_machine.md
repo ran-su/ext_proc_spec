@@ -481,6 +481,56 @@ GRPC mode exception:
   message size exceeds available_bytes
 ```
 
+## Implementation Lessons From Current PRs
+
+These notes are non-normative. They capture practical pressure points seen in
+the public C++ / Go / Java implementation work as of 2026-06-11.
+
+Client-side first:
+
+- Current visible C++, Go, and Java work is client-side first. The state model
+  still includes server-side states because A93 requires them, but implementers
+  should expect server support to need a separate pass through filter-chain
+  integration, metadata direction names, and metrics labels.
+
+Side-stream startup can fail before the data-plane stream exists:
+
+- Java and Go both structure the client side so the ext_proc stream may be
+  created before the underlying data-plane stream is allowed to start. That
+  creates an early failure path that belongs in the shared stream lifecycle,
+  before `REQ_HEADERS_WAITING` has successfully unblocked the data plane.
+- If `failure_mode_allow=true`, this early failure can create the data-plane
+  stream and bypass ext_proc. If `failure_mode_allow=false`, it fails the RPC
+  before any data-plane stream is committed.
+
+Raw serialized message access is a separate state boundary:
+
+- Java adds a raw-message client interceptor so ext_proc sees serialized
+  message bytes rather than deserialized application objects. Go's open PR
+  also explicitly marshals message payloads for `ProcessingRequest` bodies.
+- This is not just an implementation detail. The body transform state should
+  be modeled around serialized gRPC message bytes, not application message
+  objects, so body replacement and message-count changes stay language-neutral.
+
+Implementation status can lag config state:
+
+- C++ currently parses most config fields and wires a filter class, but the
+  ext_proc call interception body is still a stub in the draft PR. That means
+  a language can appear to support the xDS config surface before it supports
+  any data-plane state transitions.
+- Go has merged config and client-filter scaffolding, while its normal-mode
+  client-stream state machine is still in an open PR.
+
+Features may be intentionally deferred after normal mode:
+
+- Go's open normal-mode PR explicitly excludes channel retention, metrics, and
+  observability mode. Keep these as distinct states/subsystems instead of
+  folding them into the basic normal-mode path.
+- The A93 flow-control window messages are still best treated as a separate
+  subsystem. Current visible code uses normal gRPC/onReady style backpressure
+  in places, but that is not the same as implementing the protocol-level window
+  update fields described by the linked Envoy PR.
+
 ## Suggested Implementation Shape
 
 ```text
