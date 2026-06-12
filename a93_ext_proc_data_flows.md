@@ -182,7 +182,7 @@ sequenceDiagram
 
 ## 5. Headers-Only Request Or Body Mode NONE
 
-If request and response body modes are `NONE`, only configured header and trailer events are sent to ext_proc. This is also the case where `failure_mode_allow=true` can allow the RPC to continue after a non-OK ext_proc failure, because no body stream replacement has begun.
+If request and response body modes are `NONE`, only configured header and trailer events are sent to ext_proc. This is also a non-observability case where `failure_mode_allow=true` can allow the RPC to continue after a non-OK ext_proc failure, because no body stream replacement has begun.
 
 ```mermaid
 sequenceDiagram
@@ -227,7 +227,7 @@ sequenceDiagram
     participant EP as ext_proc callout server
     participant Server as server app
 
-    CP-->>Filter: xDS config includes response_header_mode=SEND
+    CP-->>Filter: xDS config includes response_trailer_mode=SEND if response_body_mode=GRPC
     Client->>Filter: Request events
     Filter->>Server: Request events after any ext_proc handling
     Server-->>Filter: Trailers-only response
@@ -267,7 +267,7 @@ sequenceDiagram
 
 ## 8. Non-OK ext_proc Failure
 
-A non-OK ext_proc stream status normally fails the data-plane RPC with `INTERNAL`. With `failure_mode_allow=true`, the RPC may continue only if the filter has not started sending request or response messages to the ext_proc stream.
+A non-OK ext_proc stream status normally fails the data-plane RPC with `INTERNAL`. With `failure_mode_allow=true`, the RPC may continue if the filter is in observability mode or, outside observability mode, if the filter has not started sending request or response messages to the ext_proc stream.
 
 ```mermaid
 sequenceDiagram
@@ -285,10 +285,13 @@ sequenceDiagram
     alt failure_mode_allow=false
         Filter-->>Client: Fail data-plane RPC with INTERNAL
         Filter-xServer: Stop forwarding
+    else failure_mode_allow=true and observability_mode=true
+        Filter->>Server: Continue data-plane RPC without further ext_proc action
+        Server-->>Client: Normal data-plane response path
     else failure_mode_allow=true and no body events were sent to ext_proc
         Filter->>Server: Continue data-plane RPC without further ext_proc action
         Server-->>Client: Normal data-plane response path
-    else failure_mode_allow=true but body events were sent to ext_proc
+    else failure_mode_allow=true but body events were sent to ext_proc outside observability mode
         Filter-->>Client: Fail data-plane RPC with INTERNAL
         Filter-xServer: Stop forwarding because body replacement stream is unsafe to bypass
     end
@@ -407,7 +410,7 @@ sequenceDiagram
 
 ## 13. ext_proc Rewrites Response Message Count
 
-The same body-stream ownership applies to server-to-client messages when `response_body_mode=GRPC`. A valid config with response body mode `GRPC` requires `response_header_mode=SEND`.
+The same body-stream ownership applies to server-to-client messages when `response_body_mode=GRPC`. A valid config with response body mode `GRPC` requires `response_trailer_mode=SEND`.
 The filter forwards the ext_proc output stream and does not require a one-to-one response for each input server message.
 
 ```mermaid
@@ -418,7 +421,7 @@ sequenceDiagram
     participant EP as ext_proc callout server
     participant Server as server app
 
-    CP-->>Filter: response_header_mode=SEND and response_body_mode=GRPC
+    CP-->>Filter: response_trailer_mode=SEND and response_body_mode=GRPC
     Server-->>Filter: Server headers
     Filter->>EP: response_headers
     EP-->>Filter: response_headers CONTINUE

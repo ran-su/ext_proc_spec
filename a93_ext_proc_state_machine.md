@@ -67,7 +67,7 @@ stateDiagram-v2
     DRAINING --> CLOSED_OK_BYPASS: OK close after echo/drain
     DRAINING --> FAILED: non-OK close or protocol error
 
-    FAILED --> CLOSED_OK_BYPASS: failure_mode_allow and no body sent
+    FAILED --> CLOSED_OK_BYPASS: failure_mode_allow and (observability or no body sent)
     FAILED --> DATA_PLANE_FAILED: otherwise fail with INTERNAL
 
     OBSERVABILITY_CLOSING --> CLOSED_OK_BYPASS: deferred close done
@@ -78,9 +78,11 @@ stateDiagram-v2
 
 ## Global Failure-Mode Flag
 
-The `failure_mode_allow` bypass condition is global across both body
-directions. A93 says bypass is allowed only if the filter has not yet
-started sending client or server messages to the ext_proc stream.
+The `failure_mode_allow` bypass condition has an observability-mode
+exception. A93 says non-OK ext_proc termination can be bypassed when
+`failure_mode_allow=true` and either the filter is in observability mode
+or the filter has not yet started sending client or server messages to
+the ext_proc stream.
 
 ```text
 has_sent_any_body_to_ext_proc =
@@ -90,7 +92,7 @@ has_sent_any_body_to_ext_proc =
 On non-OK ext_proc failure:
 
 ```text
-if failure_mode_allow && !has_sent_any_body_to_ext_proc:
+if failure_mode_allow && (observability_mode || !has_sent_any_body_to_ext_proc):
   continue data-plane RPC with no further ext_proc processing
 else:
   fail data-plane RPC with INTERNAL

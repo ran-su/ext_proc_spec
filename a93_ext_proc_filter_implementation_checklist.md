@@ -4,6 +4,7 @@ This checklist is for implementing the gRPC xDS `ext_proc` filter
 described by A93. It is intended to be used together with:
 
 - A93 / gRPC PR 484: https://github.com/grpc/proposal/pull/484
+- Local edge-case inventory: `a93_ext_proc_edge_cases.md`
 - Envoy PR 38753, adding `GRPC` body mode and related body/drain fields:
   https://github.com/envoyproxy/envoy/pull/38753
 - Envoy PR 45509, adding ext_proc flow-control fields:
@@ -26,9 +27,9 @@ described by A93. It is intended to be used together with:
     https://github.com/grpc/grpc-java/pull/12494,
     https://github.com/grpc/grpc-java/pull/12690
 
-This document is implementation guidance. The source of truth remains A93
-and the linked proto definitions. Use generated proto types instead of
-hand-written field names.
+This document is implementation guidance. The source of truth remains the
+upstream A93 proposal, the docs linked from A93, and the linked proto
+definitions. Use generated proto types instead of hand-written field names.
 
 ## Implementation Status Snapshot
 
@@ -114,15 +115,15 @@ Supported fields:
 - [ ] `grpc_service` must be present.
 - [ ] Validate `grpc_service` using A102 rules.
 - [ ] `failure_mode_allow` controls whether non-OK ext_proc failure can be
-  bypassed before any request or response body message has been sent to
-  ext_proc.
+  bypassed in observability mode or, outside observability mode, before any
+  request or response body message has been sent to ext_proc.
 - [ ] `processing_mode` is required.
 - [ ] Support `request_header_mode`, `response_header_mode`, and
   `response_trailer_mode` according to the Envoy processing mode proto.
 - [ ] For `request_body_mode`, support only `NONE` and `GRPC`.
 - [ ] For `response_body_mode`, support only `NONE` and `GRPC`.
 - [ ] Reject or invalidate unsupported body modes.
-- [ ] If `response_body_mode=GRPC`, require `response_header_mode=SEND`.
+- [ ] If `response_body_mode=GRPC`, require `response_trailer_mode=SEND`.
 - [ ] Ignore `request_trailer_mode` because gRPC does not send request
   trailers.
 - [ ] Support `request_attributes` for client-to-server events.
@@ -131,6 +132,9 @@ Supported fields:
 - [ ] Support optional `mutation_rules` using A102 validation.
 - [ ] Support `forward_rules.allowed_headers` and
   `forward_rules.disallowed_headers`.
+- [ ] If `forward_rules` is unset, forward all headers to ext_proc.
+- [ ] If both `allowed_headers` and `disallowed_headers` are set, forward
+  only allowed headers that are not also disallowed.
 - [ ] Support `disable_immediate_response`.
 - [ ] Support `observability_mode`.
 - [ ] Support `deferred_close_timeout` for observability mode.
@@ -159,7 +163,7 @@ Tests:
 - [ ] Missing `processing_mode` invalidates the resource.
 - [ ] Unsupported request body mode invalidates the resource.
 - [ ] Unsupported response body mode invalidates the resource.
-- [ ] `response_body_mode=GRPC` with response headers not sent invalidates
+- [ ] `response_body_mode=GRPC` with response trailers not sent invalidates
   the resource.
 - [ ] Positive `deferred_close_timeout` is accepted.
 - [ ] Zero or negative `deferred_close_timeout` is rejected.
@@ -509,6 +513,8 @@ Forwarding:
 
 - [ ] Apply `forward_rules.allowed_headers`.
 - [ ] Apply `forward_rules.disallowed_headers`.
+- [ ] Treat unset `forward_rules` as forwarding all headers.
+- [ ] Treat `disallowed_headers` as overriding `allowed_headers`.
 - [ ] Include only configured/allowed headers in ext_proc header messages.
 
 A102 header representation:
@@ -523,8 +529,8 @@ A102 header representation:
 - [ ] When writing `HeaderValue`, use `raw_value`, not `value`.
 - [ ] Support `HeaderValueOption.append_action` enum values as A102
   describes.
-- [ ] Do not support `keep_empty_value`; an empty resulting value removes the
-  header key.
+- [ ] Do not support `keep_empty_value`; keep headers even if mutations
+  result in an empty value, regardless of this field.
 - [ ] Do not support deprecated `append`.
 
 Mutation rules:
@@ -545,8 +551,8 @@ Tests:
 
 - [ ] Invalid header mutation from ext_proc fails ext_proc.
 - [ ] Disallowed mutation is ignored when `disallow_is_error=false`.
-- [ ] Disallowed mutation with `disallow_is_error=true` is treated as an
-  ext_proc failure and then follows `failure_mode_allow` handling.
+- [ ] Disallowed mutation with `disallow_is_error=true` fails the data-plane
+  RPC.
 - [ ] `host`, pseudo headers, and `grpc-*` cannot be mutated.
 - [ ] Binary headers are encoded/decoded correctly.
 
@@ -554,6 +560,8 @@ Tests:
 
 - [ ] For client-to-server events, use `request_attributes`.
 - [ ] For server-to-client events, use `response_attributes`.
+- [ ] Populate request attributes only on the first client-to-server event.
+- [ ] Populate response attributes only on the first server-to-client event.
 - [ ] Populate exactly one top-level `attributes` map entry with key
   `envoy.filters.http.ext_proc`.
 - [ ] Put a `google.protobuf.Struct` value containing requested supported
@@ -575,11 +583,14 @@ Tests:
 Non-OK ext_proc termination:
 
 - [ ] By default, fail the data-plane RPC with `INTERNAL`.
-- [ ] If `failure_mode_allow=true` and no client or server body message has
-  been sent to ext_proc yet, allow the data-plane RPC to continue.
+- [ ] If `failure_mode_allow=true` and the filter is in observability mode,
+  allow the data-plane RPC to continue.
+- [ ] If `failure_mode_allow=true`, the filter is not in observability mode,
+  and no client or server body message has been sent to ext_proc yet, allow
+  the data-plane RPC to continue.
 - [ ] If any request or response body message has been sent to ext_proc,
   fail the data-plane RPC with `INTERNAL` even when
-  `failure_mode_allow=true`.
+  `failure_mode_allow=true`, unless the filter is in observability mode.
 - [ ] Once bypassed after allowed failure, take no further ext_proc action for
   that data-plane RPC.
 
@@ -609,6 +620,8 @@ Tests:
 - [ ] Non-OK before any body, `failure_mode_allow=true`, bypasses ext_proc.
 - [ ] Non-OK after request body was sent fails INTERNAL.
 - [ ] Non-OK after response body was sent fails INTERNAL.
+- [ ] Non-OK in observability mode with `failure_mode_allow=true` bypasses
+  ext_proc even after body messages were sent.
 - [ ] OK close without body processing bypasses later events.
 - [ ] Drain path half-closes ext_proc, forwards echoed messages, then bypasses.
 
@@ -723,7 +736,7 @@ Configuration:
 - [ ] Invalid missing `grpc_service`.
 - [ ] Invalid missing `processing_mode`.
 - [ ] Invalid unsupported body mode.
-- [ ] Invalid `response_body_mode=GRPC` without response headers.
+- [ ] Invalid `response_body_mode=GRPC` without response trailers.
 - [ ] Top-level and per-route override combinations.
 - [ ] Trusted and untrusted `GrpcService`.
 
@@ -784,7 +797,7 @@ Resource updates:
 - [ ] Do not use a single "pending body response per body request" queue.
   Body streams are not one-to-one.
 - [ ] Maintain a global `has_sent_any_body_to_ext_proc` flag for
-  `failure_mode_allow`.
+  non-observability `failure_mode_allow`.
 - [ ] Treat every protocol validation failure as ext_proc stream failure,
   then apply `failure_mode_allow`.
 - [ ] Keep generated proto behavior authoritative, especially while linked
